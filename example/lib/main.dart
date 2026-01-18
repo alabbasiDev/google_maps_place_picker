@@ -4,7 +4,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 // ignore: implementation_imports, unused_import
 import 'package:google_maps_place_picker_mb/src/google_map_place_picker.dart'; // do not import this yourself
-import 'dart:io' show Platform;
 
 // Your api key storage.
 import 'keys.dart';
@@ -160,11 +159,9 @@ class _HomePageState extends State<HomePage> {
                           MaterialPageRoute(
                             builder: (context) {
                               return PlacePicker(
-                                resizeToAvoidBottomInset:
-                                    false, // only works in page mode, less flickery
-                                apiKey: Platform.isAndroid
-                                    ? APIKeys.androidApiKey
-                                    : APIKeys.iosApiKey,
+                                resizeToAvoidBottomInset: false,
+                                // only works in page mode, less flickery
+                                apiKey: APIKeys.apiKey,
                                 hintText: "Find a place ...",
                                 searchingText: "Please wait ...",
                                 selectText: "Select place",
@@ -321,9 +318,7 @@ class _HomePageState extends State<HomePage> {
                       width: MediaQuery.of(context).size.width * 0.75,
                       height: MediaQuery.of(context).size.height * 0.35,
                       child: PlacePicker(
-                          apiKey: Platform.isAndroid
-                              ? APIKeys.androidApiKey
-                              : APIKeys.iosApiKey,
+                          apiKey: APIKeys.apiKey,
                           hintText: "Find a place ...",
                           searchingText: "Please wait ...",
                           selectText: "Select place",

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_api_headers/google_api_headers.dart';
@@ -363,7 +364,9 @@ class _PlacePickerState extends State<PlacePicker> {
                   }
                 },
                 icon: Icon(
-                  Platform.isIOS ? Icons.arrow_back_ios : Icons.arrow_back,
+                  !kIsWeb && Platform.isIOS
+                      ? Icons.arrow_back_ios
+                      : Icons.arrow_back,
                 ),
                 color: Colors.black.withAlpha(128),
                 padding: EdgeInsets.zero)
