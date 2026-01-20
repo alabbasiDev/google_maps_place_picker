@@ -1,30 +1,39 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_google_maps_webservices/places.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_api_headers/google_api_headers.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_place_picker_mb/google_maps_place_picker.dart';
 import 'package:google_maps_place_picker_mb/providers/place_provider.dart';
-import 'package:google_maps_place_picker_mb/src/autocomplete_search.dart';
+import 'package:google_maps_place_picker_mb/src/components/autocomplete_search.dart';
+import 'package:google_maps_place_picker_mb/src/components/location_error_widgets.dart';
 import 'package:google_maps_place_picker_mb/src/controllers/autocomplete_search_controller.dart';
 import 'package:google_maps_place_picker_mb/src/google_map_place_picker.dart';
-import 'package:flutter_google_maps_webservices/places.dart';
+import 'package:google_maps_place_picker_mb/src/models/enums.dart';
 import 'package:http/http.dart';
 import 'package:provider/provider.dart';
-import 'dart:io' show Platform;
-
 import 'package:uuid/uuid.dart';
+
+import 'models/location_error_configuration.dart';
 
 typedef IntroModalWidgetBuilder = Widget Function(
   BuildContext context,
   Function? close,
 );
 
-enum PinState { Preparing, Idle, Dragging }
-
-enum SearchingState { Idle, Searching }
+/// Builder for custom location error widget.
+///
+/// Use this for complete control over the error UI. If you only need to
+/// customize text and icons, use [LocationErrorConfiguration] instead.
+typedef LocationErrorWidgetBuilder = Widget Function(
+  BuildContext context,
+  LocationErrorType errorType,
+  VoidCallback onRetry,
+);
 
 class PlacePicker extends StatefulWidget {
   PlacePicker({
@@ -32,7 +41,7 @@ class PlacePicker extends StatefulWidget {
     required this.apiKey,
     this.onPlacePicked,
     required this.initialPosition,
-    this.useCurrentLocation,
+    this.useCurrentLocation = false,
     this.desiredLocationAccuracy = LocationAccuracy.high,
     this.onMapCreated,
     this.hintText,
@@ -78,12 +87,14 @@ class PlacePicker extends StatefulWidget {
     this.onMapTypeChanged,
     this.zoomGesturesEnabled = true,
     this.zoomControlsEnabled = false,
+    this.locationErrorWidgetBuilder,
+    this.locationErrorConfiguration,
   }) : super(key: key);
 
   final String apiKey;
 
   final LatLng initialPosition;
-  final bool? useCurrentLocation;
+  final bool useCurrentLocation;
   final LocationAccuracy desiredLocationAccuracy;
 
   final String? hintText;
@@ -99,6 +110,10 @@ class PlacePicker extends StatefulWidget {
   final MapType initialMapType;
   final bool enableMapTypeButton;
   final bool enableMyLocationButton;
+
+  /// Deprecated: No longer used. A loading spinner is shown instead.
+  @Deprecated(
+      'No longer used. Loading spinner is shown while fetching location.')
   final int myLocationButtonCooldown;
 
   final bool usePinPointingSearch;
@@ -233,13 +248,61 @@ class PlacePicker extends StatefulWidget {
   /// Allow user to make visible the zoom button
   final bool zoomControlsEnabled;
 
+  /// Optional - builds completely customized location error widget.
+  ///
+  /// If not provided, default solution widgets will be shown based on error type.
+  /// Use this for complete control over the error UI.
+  ///
+  /// If you only need to customize text and icons, use [locationErrorConfiguration] instead.
+  final LocationErrorWidgetBuilder? locationErrorWidgetBuilder;
+
+  /// Configuration for all location error widgets.
+  ///
+  /// Customize icons, colors, titles, messages, button texts, and instruction steps
+  /// for all error types (GPS disabled, permission denied, permission permanently
+  /// denied, and unknown errors).
+  ///
+  /// **Auto-detection:** If not provided, the configuration will be automatically
+  /// selected based on the device's locale. Currently supports:
+  /// - English (en) - default
+  /// - Arabic (ar)
+  ///
+  /// Use factory constructors for explicit language selection:
+  /// - [LocationErrorConfiguration.english]
+  /// - [LocationErrorConfiguration.arabic]
+  /// - [LocationErrorConfiguration.fromLocale] for custom locale
+  ///
+  /// Or create a custom instance for full translation control.
+  ///
+  /// Example:
+  /// ```dart
+  /// // Auto-detect (recommended)
+  /// PlacePicker(
+  ///   // locationErrorConfiguration is automatically detected from device locale
+  /// )
+  ///
+  /// // Explicit language
+  /// PlacePicker(
+  ///   locationErrorConfiguration: LocationErrorConfiguration.arabic(),
+  /// )
+  ///
+  /// // Custom translation
+  /// PlacePicker(
+  ///   locationErrorConfiguration: LocationErrorConfiguration(
+  ///     gpsDisabledTitle: 'Your translated title',
+  ///     // ... other translations
+  ///   ),
+  /// )
+  /// ```
+  final LocationErrorConfiguration? locationErrorConfiguration;
+
   @override
-  _PlacePickerState createState() => _PlacePickerState();
+  State<PlacePicker> createState() => _PlacePickerState();
 }
 
 class _PlacePickerState extends State<PlacePicker> {
   GlobalKey appBarKey = GlobalKey();
-  late final Future<PlaceProvider> _futureProvider;
+  Future<PlaceProvider>? _futureProvider;
   PlaceProvider? provider;
   SearchBarController searchBarController = SearchBarController();
   bool showIntroModal = true;
@@ -247,8 +310,23 @@ class _PlacePickerState extends State<PlacePicker> {
   @override
   void initState() {
     super.initState();
-
     _futureProvider = _initPlaceProvider();
+  }
+
+  void _retryInitialization() {
+    setState(() {
+      _futureProvider = _initPlaceProvider();
+    });
+  }
+
+  LocationErrorType _parseLocationError(Object error) {
+    return switch (error) {
+      GpsDisabledException() => LocationErrorType.locationServiceDisabled,
+      LocationPermissionDeniedException() => LocationErrorType.permissionDenied,
+      LocationPermissionPermanentlyDeniedException() =>
+        LocationErrorType.permissionDeniedForever,
+      _ => LocationErrorType.unknown,
+    };
   }
 
   @override
@@ -259,17 +337,17 @@ class _PlacePickerState extends State<PlacePicker> {
   }
 
   Future<PlaceProvider> _initPlaceProvider() async {
-    final headers = await GoogleApiHeaders().getHeaders();
+    final headers = await const GoogleApiHeaders().getHeaders();
     final provider = PlaceProvider(
       widget.apiKey,
       widget.proxyBaseUrl,
       widget.httpClient,
       headers,
     );
-    provider.sessionToken = Uuid().v4();
+    provider.sessionToken = const Uuid().v4();
     provider.desiredAccuracy = widget.desiredLocationAccuracy;
     provider.setMapType(widget.initialMapType);
-    if (widget.useCurrentLocation != null && widget.useCurrentLocation!) {
+    if (widget.useCurrentLocation) {
       await provider.updateCurrentLocation(
           gracefully: widget.ignoreLocationPermissionErrors);
     }
@@ -286,6 +364,26 @@ class _PlacePickerState extends State<PlacePicker> {
         child: FutureBuilder<PlaceProvider>(
           future: _futureProvider,
           builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              final error = snapshot.error;
+              final errorType = _parseLocationError(error!);
+              if (widget.locationErrorWidgetBuilder != null) {
+                return Scaffold(
+                  body: widget.locationErrorWidgetBuilder!(
+                    context,
+                    errorType,
+                    _retryInitialization,
+                  ),
+                );
+              }
+              return DefaultLocationErrorWidget(
+                errorType: errorType,
+                error: error,
+                onRetry: _retryInitialization,
+                config: widget.locationErrorConfiguration,
+              );
+            }
+
             if (snapshot.connectionState == ConnectionState.waiting) {
               return const Center(child: CircularProgressIndicator());
             } else if (snapshot.hasData) {
@@ -306,245 +404,444 @@ class _PlacePickerState extends State<PlacePicker> {
                       elevation: 0,
                       backgroundColor: Colors.transparent,
                       titleSpacing: 0.0,
-                      title: _buildSearchBar(context),
+                      title: _SearchBarWidget(
+                        provider: provider!,
+                        appBarKey: appBarKey,
+                        searchBarController: searchBarController,
+                        showBackButton: provider!.placeSearchingState ==
+                                SearchingState.Idle &&
+                            (widget.automaticallyImplyAppBarLeading ||
+                                widget.onTapBack != null),
+                        onBackPressed: _handleBackButton,
+                        onPicked: (prediction) {
+                          if (mounted) _pickPrediction(prediction);
+                        },
+                        onSearchFailed: widget.onAutoCompleteFailed,
+                        hintText: widget.hintText,
+                        searchingText: widget.searchingText,
+                        debounceMilliseconds:
+                            widget.autoCompleteDebounceInMilliseconds,
+                        autocompleteOffset: widget.autocompleteOffset,
+                        autocompleteRadius: widget.autocompleteRadius,
+                        autocompleteLanguage: widget.autocompleteLanguage,
+                        autocompleteComponents: widget.autocompleteComponents,
+                        autocompleteTypes: widget.autocompleteTypes,
+                        strictbounds: widget.strictbounds,
+                        region: widget.region,
+                        initialSearchString: widget.initialSearchString,
+                        searchForInitialValue: widget.searchForInitialValue,
+                        autocompleteOnTrailingWhitespace:
+                            widget.autocompleteOnTrailingWhitespace,
+                      ),
                     ),
-                    body: _buildMapWithLocation(),
+                    body: _MapWithLocation(
+                      provider: provider!,
+                      initialPosition: widget.initialPosition,
+                      appBarKey: appBarKey,
+                      fullMotion: !widget.resizeToAvoidBottomInset,
+                      selectedPlaceWidgetBuilder:
+                          widget.selectedPlaceWidgetBuilder,
+                      pinBuilder: widget.pinBuilder,
+                      onSearchFailed: widget.onGeocodingSearchFailed,
+                      debounceMilliseconds:
+                          widget.cameraMoveDebounceInMilliseconds,
+                      enableMapTypeButton: widget.enableMapTypeButton,
+                      enableMyLocationButton: widget.enableMyLocationButton,
+                      usePinPointingSearch: widget.usePinPointingSearch,
+                      usePlaceDetailSearch: widget.usePlaceDetailSearch,
+                      onMapCreated: widget.onMapCreated,
+                      selectInitialPosition: widget.selectInitialPosition,
+                      language: widget.autocompleteLanguage,
+                      pickArea: widget.pickArea,
+                      forceSearchOnZoomChanged: widget.forceSearchOnZoomChanged,
+                      hidePlaceDetailsWhenDraggingPin:
+                          widget.hidePlaceDetailsWhenDraggingPin,
+                      selectText: widget.selectText,
+                      outsideOfPickAreaText: widget.outsideOfPickAreaText,
+                      onToggleMapType: _handleToggleMapType,
+                      onMyLocation: _handleMyLocation,
+                      onMoveStart: _handleMoveStart,
+                      onPlacePicked: widget.onPlacePicked,
+                      onCameraMoveStarted: widget.onCameraMoveStarted,
+                      onCameraMove: widget.onCameraMove,
+                      onCameraIdle: widget.onCameraIdle,
+                      zoomGesturesEnabled: widget.zoomGesturesEnabled,
+                      zoomControlsEnabled: widget.zoomControlsEnabled,
+                    ),
                   ),
-                  _buildIntroModal(context),
+                  _IntroModalWidget(
+                    showModal: showIntroModal,
+                    introModalWidgetBuilder: widget.introModalWidgetBuilder,
+                  ),
                 ]),
               );
             }
 
-            final children = <Widget>[];
-            if (snapshot.hasError) {
-              children.addAll([
-                Icon(
-                  Icons.error_outline,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text('Error: ${snapshot.error}'),
-                )
-              ]);
-            } else {
-              children.add(CircularProgressIndicator());
-            }
-
-            return Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: children,
-                ),
-              ),
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
             );
           },
         ));
   }
 
-  Widget _buildSearchBar(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        SizedBox(width: 15),
-        provider!.placeSearchingState == SearchingState.Idle &&
-                (widget.automaticallyImplyAppBarLeading ||
-                    widget.onTapBack != null)
-            ? IconButton(
-                onPressed: () {
-                  if (!showIntroModal ||
-                      widget.introModalWidgetBuilder == null) {
-                    provider?.debounceTimer?.cancel();
-                    if (widget.onTapBack != null) {
-                      widget.onTapBack!();
-                      return;
-                    }
-                    Navigator.maybePop(context);
-                  }
-                },
-                icon: Icon(
-                  !kIsWeb && Platform.isIOS
-                      ? Icons.arrow_back_ios
-                      : Icons.arrow_back,
-                ),
-                color: Colors.black.withAlpha(128),
-                padding: EdgeInsets.zero)
-            : Container(),
-        Expanded(
-          child: AutoCompleteSearch(
-              appBarKey: appBarKey,
-              searchBarController: searchBarController,
-              sessionToken: provider!.sessionToken,
-              hintText: widget.hintText,
-              searchingText: widget.searchingText,
-              debounceMilliseconds: widget.autoCompleteDebounceInMilliseconds,
-              onPicked: (prediction) {
-                if (mounted) {
-                  _pickPrediction(prediction);
-                }
-              },
-              onSearchFailed: (status) {
-                if (widget.onAutoCompleteFailed != null) {
-                  widget.onAutoCompleteFailed!(status);
-                }
-              },
-              autocompleteOffset: widget.autocompleteOffset,
-              autocompleteRadius: widget.autocompleteRadius,
-              autocompleteLanguage: widget.autocompleteLanguage,
-              autocompleteComponents: widget.autocompleteComponents,
-              autocompleteTypes: widget.autocompleteTypes,
-              strictbounds: widget.strictbounds,
-              region: widget.region,
-              initialSearchString: widget.initialSearchString,
-              searchForInitialValue: widget.searchForInitialValue,
-              autocompleteOnTrailingWhitespace:
-                  widget.autocompleteOnTrailingWhitespace),
-        ),
-        SizedBox(width: 5),
-      ],
-    );
-  }
-
-  _pickPrediction(Prediction prediction) async {
+  Future<void> _pickPrediction(Prediction prediction) async {
     provider!.placeSearchingState = SearchingState.Searching;
-
     final PlacesDetailsResponse response =
         await provider!.places.getDetailsByPlaceId(
       prediction.placeId!,
       sessionToken: provider!.sessionToken,
       language: widget.autocompleteLanguage,
     );
-
     if (response.errorMessage?.isNotEmpty == true ||
         response.status == "REQUEST_DENIED") {
-      if (widget.onAutoCompleteFailed != null) {
-        widget.onAutoCompleteFailed!(response.status);
-      }
+      widget.onAutoCompleteFailed?.call(response.status);
       return;
     }
-
     provider!.selectedPlace = PickResult.fromPlaceDetailResult(response.result);
-
-    // Prevents searching again by camera movement.
     provider!.isAutoCompleteSearching = true;
-
     await _moveTo(provider!.selectedPlace!.geometry!.location.lat,
         provider!.selectedPlace!.geometry!.location.lng);
-
     if (provider == null) return;
     provider!.placeSearchingState = SearchingState.Idle;
   }
 
-  _moveTo(double latitude, double longitude) async {
+  Future<void> _moveTo(double latitude, double longitude) async {
     if (provider?.mapController == null) return;
-    GoogleMapController? controller = provider!.mapController;
+    final GoogleMapController? controller = provider!.mapController;
     await controller!.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: LatLng(latitude, longitude),
-          zoom: 16,
-        ),
+        CameraPosition(target: LatLng(latitude, longitude), zoom: 16),
       ),
     );
   }
 
-  _moveToCurrentPosition() async {
+  Future<void> _moveToCurrentPosition() async {
     if (provider?.currentPosition == null) return;
     await _moveTo(provider!.currentPosition!.latitude,
         provider!.currentPosition!.longitude);
   }
 
-  Widget _buildMapWithLocation() {
-    if (provider!.currentPosition == null) {
-      return _buildMap(widget.initialPosition);
-    }
-    return _buildMap(LatLng(provider!.currentPosition!.latitude,
-        provider!.currentPosition!.longitude));
+  void _handleToggleMapType() {
+    if (provider == null) return;
+    provider!.switchMapType();
+    widget.onMapTypeChanged?.call(provider!.mapType);
   }
 
-  Widget _buildMap(LatLng initialTarget) {
-    return GoogleMapPlacePicker(
-      fullMotion: !widget.resizeToAvoidBottomInset,
-      initialTarget: initialTarget,
-      appBarKey: appBarKey,
-      selectedPlaceWidgetBuilder: widget.selectedPlaceWidgetBuilder,
-      pinBuilder: widget.pinBuilder,
-      onSearchFailed: widget.onGeocodingSearchFailed,
-      debounceMilliseconds: widget.cameraMoveDebounceInMilliseconds,
-      enableMapTypeButton: widget.enableMapTypeButton,
-      enableMyLocationButton: widget.enableMyLocationButton,
-      usePinPointingSearch: widget.usePinPointingSearch,
-      usePlaceDetailSearch: widget.usePlaceDetailSearch,
-      onMapCreated: widget.onMapCreated,
-      selectInitialPosition: widget.selectInitialPosition,
-      language: widget.autocompleteLanguage,
-      pickArea: widget.pickArea,
-      forceSearchOnZoomChanged: widget.forceSearchOnZoomChanged,
-      hidePlaceDetailsWhenDraggingPin: widget.hidePlaceDetailsWhenDraggingPin,
-      selectText: widget.selectText,
-      outsideOfPickAreaText: widget.outsideOfPickAreaText,
-      onToggleMapType: () {
-        if (provider == null) return;
-        provider!.switchMapType();
-        if (widget.onMapTypeChanged != null) {
-          widget.onMapTypeChanged!(provider!.mapType);
-        }
-      },
-      onMyLocation: () async {
-        // Prevent to click many times in short period.
-        if (provider == null) return;
-        if (provider!.isOnUpdateLocationCooldown == false) {
-          provider!.isOnUpdateLocationCooldown = true;
-          Timer(Duration(seconds: widget.myLocationButtonCooldown), () {
-            provider!.isOnUpdateLocationCooldown = false;
-          });
-          await provider!.updateCurrentLocation(
-              gracefully: widget.ignoreLocationPermissionErrors);
-          await _moveToCurrentPosition();
-        }
-      },
-      onMoveStart: () {
-        if (provider == null) return;
-        searchBarController.reset();
-      },
-      onPlacePicked: widget.onPlacePicked,
-      onCameraMoveStarted: widget.onCameraMoveStarted,
-      onCameraMove: widget.onCameraMove,
-      onCameraIdle: widget.onCameraIdle,
-      zoomGesturesEnabled: widget.zoomGesturesEnabled,
-      zoomControlsEnabled: widget.zoomControlsEnabled,
+  Future<void> _handleMyLocation() async {
+    if (provider == null || provider!.isLoadingLocation) return;
+    // If already at current position, just animate to it without GPS request
+    if (_isMapAtCurrentPosition()) {
+      await _moveToCurrentPosition();
+      return;
+    }
+    provider!.isLoadingLocation = true;
+    try {
+      await provider!.updateCurrentLocation(
+          gracefully: widget.ignoreLocationPermissionErrors);
+      await _moveToCurrentPosition();
+    } catch (error) {
+      if (!mounted) return;
+      final errorType = _parseLocationError(error);
+      await showLocationErrorBottomSheet(
+        context: context,
+        errorType: errorType,
+        config: widget.locationErrorConfiguration,
+      );
+    } finally {
+      if (provider != null) {
+        provider!.isLoadingLocation = false;
+      }
+    }
+  }
+
+  /// Checks if the map camera is already at the user's current position.
+  /// Uses a threshold of ~50 meters to account for GPS inaccuracies.
+  bool _isMapAtCurrentPosition() {
+    final currentPos = provider?.currentPosition;
+    final cameraPos = provider?.cameraPosition;
+    if (currentPos == null || cameraPos == null) return false;
+    const double threshold = 0.0005; // ~50 meters at equator
+    final latDiff = (currentPos.latitude - cameraPos.target.latitude).abs();
+    final lngDiff = (currentPos.longitude - cameraPos.target.longitude).abs();
+    return latDiff < threshold && lngDiff < threshold;
+  }
+
+  void _handleMoveStart() {
+    if (provider == null) return;
+    searchBarController.reset();
+  }
+
+  void _handleBackButton() {
+    if (!showIntroModal || widget.introModalWidgetBuilder == null) {
+      provider?.debounceTimer?.cancel();
+      if (widget.onTapBack != null) {
+        widget.onTapBack!();
+        return;
+      }
+      Navigator.maybePop(context);
+    }
+  }
+}
+
+/// Search bar widget with back button and autocomplete.
+class _SearchBarWidget extends StatelessWidget {
+  const _SearchBarWidget({
+    required this.provider,
+    required this.appBarKey,
+    required this.searchBarController,
+    required this.showBackButton,
+    required this.onBackPressed,
+    required this.onPicked,
+    required this.onSearchFailed,
+    this.hintText,
+    this.searchingText,
+    this.debounceMilliseconds = 500,
+    this.autocompleteOffset,
+    this.autocompleteRadius,
+    this.autocompleteLanguage,
+    this.autocompleteComponents,
+    this.autocompleteTypes,
+    this.strictbounds,
+    this.region,
+    this.initialSearchString,
+    this.searchForInitialValue = false,
+    this.autocompleteOnTrailingWhitespace = false,
+  });
+
+  final PlaceProvider provider;
+  final GlobalKey appBarKey;
+  final SearchBarController searchBarController;
+  final bool showBackButton;
+  final VoidCallback onBackPressed;
+  final ValueChanged<Prediction> onPicked;
+  final ValueChanged<String>? onSearchFailed;
+  final String? hintText;
+  final String? searchingText;
+  final int debounceMilliseconds;
+  final num? autocompleteOffset;
+  final num? autocompleteRadius;
+  final String? autocompleteLanguage;
+  final List<Component>? autocompleteComponents;
+  final List<String>? autocompleteTypes;
+  final bool? strictbounds;
+  final String? region;
+  final String? initialSearchString;
+  final bool searchForInitialValue;
+  final bool autocompleteOnTrailingWhitespace;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        const SizedBox(width: 15),
+        if (showBackButton)
+          _BackButton(onPressed: onBackPressed)
+        else
+          const SizedBox.shrink(),
+        Expanded(
+          child: AutoCompleteSearch(
+            appBarKey: appBarKey,
+            searchBarController: searchBarController,
+            sessionToken: provider.sessionToken,
+            hintText: hintText,
+            searchingText: searchingText,
+            debounceMilliseconds: debounceMilliseconds,
+            onPicked: onPicked,
+            onSearchFailed: onSearchFailed,
+            autocompleteOffset: autocompleteOffset,
+            autocompleteRadius: autocompleteRadius,
+            autocompleteLanguage: autocompleteLanguage,
+            autocompleteComponents: autocompleteComponents,
+            autocompleteTypes: autocompleteTypes,
+            strictbounds: strictbounds,
+            region: region,
+            initialSearchString: initialSearchString,
+            searchForInitialValue: searchForInitialValue,
+            autocompleteOnTrailingWhitespace: autocompleteOnTrailingWhitespace,
+          ),
+        ),
+        const SizedBox(width: 5),
+      ],
+    );
+  }
+}
+
+/// Back button for search bar.
+class _BackButton extends StatelessWidget {
+  const _BackButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      icon: Icon(
+        !kIsWeb && Platform.isIOS ? Icons.arrow_back_ios : Icons.arrow_back,
+      ),
+      color: Colors.black.withAlpha(128),
+      padding: EdgeInsets.zero,
+    );
+  }
+}
+
+/// Map widget with location handling.
+class _MapWithLocation extends StatelessWidget {
+  const _MapWithLocation({
+    required this.provider,
+    required this.initialPosition,
+    required this.appBarKey,
+    required this.onToggleMapType,
+    required this.onMyLocation,
+    required this.onMoveStart,
+    this.fullMotion = false,
+    this.selectedPlaceWidgetBuilder,
+    this.pinBuilder,
+    this.onSearchFailed,
+    this.debounceMilliseconds,
+    this.enableMapTypeButton,
+    this.enableMyLocationButton,
+    this.usePinPointingSearch,
+    this.usePlaceDetailSearch,
+    this.onMapCreated,
+    this.selectInitialPosition,
+    this.language,
+    this.pickArea,
+    this.forceSearchOnZoomChanged,
+    this.hidePlaceDetailsWhenDraggingPin,
+    this.selectText,
+    this.outsideOfPickAreaText,
+    this.onPlacePicked,
+    this.onCameraMoveStarted,
+    this.onCameraMove,
+    this.onCameraIdle,
+    this.zoomGesturesEnabled = true,
+    this.zoomControlsEnabled = false,
+  });
+
+  final PlaceProvider provider;
+  final LatLng initialPosition;
+  final GlobalKey appBarKey;
+  final bool fullMotion;
+  final SelectedPlaceWidgetBuilder? selectedPlaceWidgetBuilder;
+  final PinBuilder? pinBuilder;
+  final ValueChanged<String>? onSearchFailed;
+  final int? debounceMilliseconds;
+  final bool? enableMapTypeButton;
+  final bool? enableMyLocationButton;
+  final bool? usePinPointingSearch;
+  final bool? usePlaceDetailSearch;
+  final MapCreatedCallback? onMapCreated;
+  final bool? selectInitialPosition;
+  final String? language;
+  final CircleArea? pickArea;
+  final bool? forceSearchOnZoomChanged;
+  final bool? hidePlaceDetailsWhenDraggingPin;
+  final String? selectText;
+  final String? outsideOfPickAreaText;
+  final VoidCallback onToggleMapType;
+  final VoidCallback onMyLocation;
+  final VoidCallback onMoveStart;
+  final ValueChanged<PickResult>? onPlacePicked;
+  final Function(PlaceProvider)? onCameraMoveStarted;
+  final CameraPositionCallback? onCameraMove;
+  final Function(PlaceProvider)? onCameraIdle;
+  final bool zoomGesturesEnabled;
+  final bool zoomControlsEnabled;
+
+  LatLng get _initialTarget {
+    if (provider.currentPosition == null) {
+      return initialPosition;
+    }
+    return LatLng(
+      provider.currentPosition!.latitude,
+      provider.currentPosition!.longitude,
     );
   }
 
-  Widget _buildIntroModal(BuildContext context) {
-    return StatefulBuilder(
-        builder: (BuildContext context, StateSetter setState) {
-      return showIntroModal && widget.introModalWidgetBuilder != null
-          ? Stack(children: [
-              Positioned(
-                top: 0,
-                right: 0,
-                bottom: 0,
-                left: 0,
-                child: Material(
-                  type: MaterialType.canvas,
-                  color: Color.fromARGB(128, 0, 0, 0),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.zero,
-                  ),
-                  child: ClipRect(),
-                ),
-              ),
-              widget.introModalWidgetBuilder!(context, () {
-                if (mounted) {
-                  setState(() {
-                    showIntroModal = false;
-                  });
-                }
-              })
-            ])
-          : Container();
-    });
+  @override
+  Widget build(BuildContext context) {
+    return GoogleMapPlacePicker(
+      fullMotion: fullMotion,
+      initialTarget: _initialTarget,
+      appBarKey: appBarKey,
+      selectedPlaceWidgetBuilder: selectedPlaceWidgetBuilder,
+      pinBuilder: pinBuilder,
+      onSearchFailed: onSearchFailed,
+      debounceMilliseconds: debounceMilliseconds,
+      enableMapTypeButton: enableMapTypeButton,
+      enableMyLocationButton: enableMyLocationButton,
+      usePinPointingSearch: usePinPointingSearch,
+      usePlaceDetailSearch: usePlaceDetailSearch,
+      onMapCreated: onMapCreated,
+      selectInitialPosition: selectInitialPosition,
+      language: language,
+      pickArea: pickArea,
+      forceSearchOnZoomChanged: forceSearchOnZoomChanged,
+      hidePlaceDetailsWhenDraggingPin: hidePlaceDetailsWhenDraggingPin,
+      selectText: selectText,
+      outsideOfPickAreaText: outsideOfPickAreaText,
+      onToggleMapType: onToggleMapType,
+      onMyLocation: onMyLocation,
+      onMoveStart: onMoveStart,
+      onPlacePicked: onPlacePicked,
+      onCameraMoveStarted: onCameraMoveStarted,
+      onCameraMove: onCameraMove,
+      onCameraIdle: onCameraIdle,
+      zoomGesturesEnabled: zoomGesturesEnabled,
+      zoomControlsEnabled: zoomControlsEnabled,
+    );
+  }
+}
+
+/// Intro modal overlay widget.
+class _IntroModalWidget extends StatefulWidget {
+  const _IntroModalWidget({
+    required this.showModal,
+    required this.introModalWidgetBuilder,
+  });
+
+  final bool showModal;
+  final IntroModalWidgetBuilder? introModalWidgetBuilder;
+
+  @override
+  State<_IntroModalWidget> createState() => _IntroModalWidgetState();
+}
+
+class _IntroModalWidgetState extends State<_IntroModalWidget> {
+  late bool _showModal;
+
+  @override
+  void initState() {
+    super.initState();
+    _showModal = widget.showModal;
+  }
+
+  void _closeModal() {
+    if (mounted) {
+      setState(() {
+        _showModal = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_showModal || widget.introModalWidgetBuilder == null) {
+      return const SizedBox.shrink();
+    }
+    return Stack(
+      children: [
+        const Positioned.fill(
+          child: Material(
+            type: MaterialType.canvas,
+            color: Color.fromARGB(128, 0, 0, 0),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            child: ClipRect(),
+          ),
+        ),
+        widget.introModalWidgetBuilder!(context, _closeModal),
+      ],
+    );
   }
 }

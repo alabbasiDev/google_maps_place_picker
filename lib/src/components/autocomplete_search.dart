@@ -7,11 +7,12 @@ import 'package:google_maps_place_picker_mb/providers/search_provider.dart';
 import 'package:google_maps_place_picker_mb/src/components/prediction_tile.dart';
 import 'package:google_maps_place_picker_mb/src/controllers/autocomplete_search_controller.dart';
 import 'package:flutter_google_maps_webservices/places.dart';
+import 'package:google_maps_place_picker_mb/src/models/enums.dart' show SearchingState;
 import 'package:provider/provider.dart';
 
 class AutoCompleteSearch extends StatefulWidget {
   const AutoCompleteSearch(
-      {Key? key,
+      {super.key,
       required this.sessionToken,
       required this.onPicked,
       required this.appBarKey,
@@ -32,8 +33,7 @@ class AutoCompleteSearch extends StatefulWidget {
       this.region,
       this.initialSearchString,
       this.searchForInitialValue,
-      this.autocompleteOnTrailingWhitespace})
-      : super(key: key);
+      this.autocompleteOnTrailingWhitespace});
 
   final String? sessionToken;
   final String? hintText;
@@ -98,75 +98,40 @@ class AutoCompleteSearchState extends State<AutoCompleteSearch> {
 
   @override
   Widget build(BuildContext context) {
-    return !widget.hidden
-        ? ChangeNotifierProvider.value(
-            value: provider,
-            child: RoundedFrame(
-              height: widget.height,
-              padding: const EdgeInsets.only(right: 10),
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.black54
-                  : Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              elevation: 4.0,
-              child: Row(
-                children: <Widget>[
-                  SizedBox(width: 10),
-                  Icon(Icons.search),
-                  SizedBox(width: 10),
-                  Expanded(child: _buildSearchTextField()),
-                  _buildTextClearIcon(),
-                ],
+    if (widget.hidden) {
+      return const SizedBox.shrink();
+    }
+    return ChangeNotifierProvider.value(
+      value: provider,
+      child: RoundedFrame(
+        height: widget.height,
+        padding: const EdgeInsets.only(right: 10),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.black54
+            : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        elevation: 4.0,
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: 10),
+            const Icon(Icons.search),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _SearchTextField(
+                controller: controller,
+                focusNode: focus,
+                hintText: widget.hintText,
+                contentPadding: widget.contentPadding,
               ),
             ),
-          )
-        : Container();
-  }
-
-  Widget _buildSearchTextField() {
-    return TextField(
-      controller: controller,
-      focusNode: focus,
-      decoration: InputDecoration(
-        hintText: widget.hintText,
-        border: InputBorder.none,
-        errorBorder: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        disabledBorder: InputBorder.none,
-        focusedErrorBorder: InputBorder.none,
-        isDense: true,
-        contentPadding: widget.contentPadding,
+            _TextClearIcon(onClear: clearText),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTextClearIcon() {
-    return Selector<SearchProvider, String>(
-        selector: (_, provider) => provider.searchTerm,
-        builder: (_, data, __) {
-          if (data.length > 0) {
-            return Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: GestureDetector(
-                child: Icon(
-                  Icons.clear,
-                  color: Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : Colors.black,
-                ),
-                onTap: () {
-                  clearText();
-                },
-              ),
-            );
-          } else {
-            return SizedBox(width: 10);
-          }
-        });
-  }
-
-  _onSearchInputChange() {
+  void _onSearchInputChange() {
     if (!mounted) return;
     this.provider.searchTerm = controller.text;
 
@@ -199,33 +164,31 @@ class AutoCompleteSearchState extends State<AutoCompleteSearch> {
     });
   }
 
-  _onFocusChanged() {
+  void _onFocusChanged() {
     PlaceProvider provider = PlaceProvider.of(context, listen: false);
     provider.isSearchBarFocused = focus.hasFocus;
     provider.debounceTimer?.cancel();
     provider.placeSearchingState = SearchingState.Idle;
   }
 
-  _searchPlace(String searchTerm) {
-    this.provider.prevSearchTerm = searchTerm;
-
+  void _searchPlace(String searchTerm) {
+    provider.prevSearchTerm = searchTerm;
     _clearOverlay();
-
     if (searchTerm.length < 1) return;
-
-    _displayOverlay(_buildSearchingOverlay());
-
+    _displayOverlay(
+      _SearchingOverlay(searchingText: widget.searchingText),
+    );
     _performAutoCompleteSearch(searchTerm);
   }
 
-  _clearOverlay() {
+  void _clearOverlay() {
     if (overlayEntry != null) {
       overlayEntry!.remove();
       overlayEntry = null;
     }
   }
 
-  _displayOverlay(Widget overlayChild) {
+  void _displayOverlay(Widget overlayChild) {
     _clearOverlay();
 
     final RenderBox? appBarRenderBox =
@@ -252,45 +215,7 @@ class AutoCompleteSearchState extends State<AutoCompleteSearch> {
     Overlay.of(context).insert(overlayEntry!);
   }
 
-  Widget _buildSearchingOverlay() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            height: 24,
-            width: 24,
-            child: CircularProgressIndicator(strokeWidth: 3),
-          ),
-          SizedBox(width: 24),
-          Expanded(
-            child: Text(
-              widget.searchingText ?? "Searching...",
-              style: TextStyle(fontSize: 16),
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPredictionOverlay(List<Prediction> predictions) {
-    return ListBody(
-      children: predictions
-          .map(
-            (p) => PredictionTile(
-              prediction: p,
-              onTap: (selectedPrediction) {
-                resetSearchBar();
-                widget.onPicked(selectedPrediction);
-              },
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  _performAutoCompleteSearch(String searchTerm) async {
+  Future<void> _performAutoCompleteSearch(String searchTerm) async {
     PlaceProvider provider = PlaceProvider.of(context, listen: false);
 
     if (searchTerm.isNotEmpty) {
@@ -320,21 +245,149 @@ class AutoCompleteSearchState extends State<AutoCompleteSearch> {
         return;
       }
 
-      _displayOverlay(_buildPredictionOverlay(response.predictions));
+      _displayOverlay(
+        _PredictionOverlay(
+          predictions: response.predictions,
+          onSelected: (selectedPrediction) {
+            resetSearchBar();
+            widget.onPicked(selectedPrediction);
+          },
+        ),
+      );
     }
   }
 
-  clearText() {
+  void clearText() {
     provider.searchTerm = "";
     controller.clear();
   }
 
-  resetSearchBar() {
+  void resetSearchBar() {
     clearText();
     focus.unfocus();
   }
 
-  clearOverlay() {
+  void clearOverlay() {
     _clearOverlay();
+  }
+}
+
+/// Search text field widget.
+class _SearchTextField extends StatelessWidget {
+  const _SearchTextField({
+    required this.controller,
+    required this.focusNode,
+    this.hintText,
+    this.contentPadding = EdgeInsets.zero,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String? hintText;
+  final EdgeInsetsGeometry contentPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      focusNode: focusNode,
+      decoration: InputDecoration(
+        hintText: hintText,
+        border: InputBorder.none,
+        errorBorder: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        disabledBorder: InputBorder.none,
+        focusedErrorBorder: InputBorder.none,
+        isDense: true,
+        contentPadding: contentPadding,
+      ),
+    );
+  }
+}
+
+/// Clear text icon button widget.
+class _TextClearIcon extends StatelessWidget {
+  const _TextClearIcon({required this.onClear});
+
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<SearchProvider, String>(
+      selector: (_, provider) => provider.searchTerm,
+      builder: (_, searchTerm, __) {
+        if (searchTerm.isEmpty) {
+          return const SizedBox(width: 10);
+        }
+        return Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: GestureDetector(
+            onTap: onClear,
+            child: Icon(
+              Icons.clear,
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white
+                  : Colors.black,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Searching overlay indicator widget.
+class _SearchingOverlay extends StatelessWidget {
+  const _SearchingOverlay({this.searchingText});
+
+  final String? searchingText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      child: Row(
+        children: <Widget>[
+          const SizedBox(
+            height: 24,
+            width: 24,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          const SizedBox(width: 24),
+          Expanded(
+            child: Text(
+              searchingText ?? "Searching...",
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Prediction list overlay widget.
+class _PredictionOverlay extends StatelessWidget {
+  const _PredictionOverlay({
+    required this.predictions,
+    required this.onSelected,
+  });
+
+  final List<Prediction> predictions;
+  final ValueChanged<Prediction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListBody(
+      children: predictions
+          .map(
+            (prediction) => PredictionTile(
+              prediction: prediction,
+              onTap: onSelected,
+            ),
+          )
+          .toList(),
+    );
   }
 }

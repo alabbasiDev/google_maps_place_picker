@@ -3,8 +3,9 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_place_picker_mb/src/exceptions/location_exceptions.dart';
+import 'package:google_maps_place_picker_mb/src/models/enums.dart';
 import 'package:google_maps_place_picker_mb/src/models/pick_result.dart';
-import 'package:google_maps_place_picker_mb/src/place_picker.dart';
 import 'package:flutter_google_maps_webservices/geocoding.dart';
 import 'package:flutter_google_maps_webservices/places.dart';
 import 'package:http/http.dart';
@@ -37,52 +38,35 @@ class PlaceProvider extends ChangeNotifier {
   late GoogleMapsPlaces places;
   late GoogleMapsGeocoding geocoding;
   String? sessionToken;
-  bool isOnUpdateLocationCooldown = false;
   LocationAccuracy? desiredAccuracy;
   bool isAutoCompleteSearching = false;
 
-  Future<void> updateCurrentLocation({bool gracefully = false}) async {
-    bool serviceEnabled;
-    LocationPermission permission;
+  bool _isLoadingLocation = false;
+  bool get isLoadingLocation => _isLoadingLocation;
+  set isLoadingLocation(bool value) {
+    _isLoadingLocation = value;
+    notifyListeners();
+  }
 
-    // Test if location services are enabled.
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  Future<void> updateCurrentLocation({bool gracefully = false}) async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // Location services are not enabled don't continue
-      // accessing the position and request users of the
-      // App to enable the location services.
-      if (gracefully) {
-        // Or you can swallow the issue and respect the user's privacy
-        return;
-      }
-      return Future.error('Location services are disabled.');
+      if (gracefully) return;
+      return Future.error(const GpsDisabledException());
     }
 
-    permission = await Geolocator.checkPermission();
+    var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        // Permissions are denied, next time you could try
-        // requesting permissions again (this is also where
-        // Android's shouldShowRequestPermissionRationale
-        // returned true. According to Android guidelines
-        // your App should show an explanatory UI now.
-        if (gracefully) {
-          // Or you can swallow the issue and respect the user's privacy
-          return;
-        }
-        return Future.error('Location permissions are denied');
+        if (gracefully) return;
+        return Future.error(const LocationPermissionDeniedException());
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      // Permissions are denied forever, handle appropriately.
-      if (gracefully) {
-        // Or you can swallow the issue and respect the user's privacy
-        return;
-      }
-      return Future.error(
-          'Location permissions are permanently denied, we cannot request permissions.');
+      if (gracefully) return;
+      return Future.error(const LocationPermissionPermanentlyDeniedException());
     }
 
     _currentPosition = await Geolocator.getCurrentPosition(
