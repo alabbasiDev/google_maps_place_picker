@@ -1,17 +1,16 @@
-# Example
+# example
 
-Example project of Google Maps Place Picker
+A new Flutter project.
 
-## Preparation
+## Getting Started
 
-Search for files ending with `.example` and copy them in the same location without the `.example` suffix. Then, replace `YOUR ### KEY HERE` with your Google Maps API key in those files.
+This project is a starting point for a Flutter application.
 
-> You can also just run this bash from the example directory (replace curly braces closed placeholders with your keys):
-> 
-> ```bash
-> \cp lib/keys.dart.example lib/keys.dart
-> \cp android/app/src/main/AndroidManifest.xml.example android/app/src/main/AndroidManifest.xml
-> \cp ios/Runner/AppDelegate.swift.example ios/Runner/AppDelegate.swift
-> sed -i '' 's/YOUR ANDROID KEY HERE/{YOUR ANDROID KEY HERE}/g' lib/keys.dart android/app/src/main/AndroidManifest.xml
-> sed -i '' 's/YOUR IOS KEY HERE/{YOUR IOS KEY HERE}/g' lib/keys.dart ios/Runner/AppDelegate.swift
-> ```
+A few resources to get you started if this is your first Flutter project:
+
+- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
+- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+
+For help getting started with Flutter development, view the
+[online documentation](https://docs.flutter.dev/), which offers tutorials,
+samples, guidance on mobile development, and a full API reference.

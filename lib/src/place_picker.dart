@@ -15,6 +15,7 @@ import 'package:google_maps_place_picker_mb/src/controllers/autocomplete_search_
 import 'package:google_maps_place_picker_mb/src/google_map_place_picker.dart';
 import 'package:google_maps_place_picker_mb/src/models/enums.dart';
 import 'package:http/http.dart';
+import 'package:logger/logger.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -35,9 +36,11 @@ typedef LocationErrorWidgetBuilder = Widget Function(
   VoidCallback onRetry,
 );
 
+final Logger logger = Logger();
+
 class PlacePicker extends StatefulWidget {
-  PlacePicker({
-    Key? key,
+  const PlacePicker({
+    super.key,
     required this.apiKey,
     this.onPlacePicked,
     required this.initialPosition,
@@ -89,7 +92,7 @@ class PlacePicker extends StatefulWidget {
     this.zoomControlsEnabled = false,
     this.locationErrorWidgetBuilder,
     this.locationErrorConfiguration,
-  }) : super(key: key);
+  });
 
   final String apiKey;
 
@@ -365,22 +368,25 @@ class _PlacePickerState extends State<PlacePicker> {
           future: _futureProvider,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
+              logger.e(snapshot.error);
               final error = snapshot.error;
               final errorType = _parseLocationError(error!);
-              if (widget.locationErrorWidgetBuilder != null) {
-                return Scaffold(
-                  body: widget.locationErrorWidgetBuilder!(
-                    context,
-                    errorType,
-                    _retryInitialization,
-                  ),
-                );
-              }
-              return DefaultLocationErrorWidget(
-                errorType: errorType,
-                error: error,
-                onRetry: _retryInitialization,
-                config: widget.locationErrorConfiguration,
+
+              return Scaffold(
+                appBar: AppBar(
+                  elevation: 1,
+                ),
+                body: widget.locationErrorWidgetBuilder?.call(
+                      context,
+                      errorType,
+                      _retryInitialization,
+                    ) ??
+                    DefaultLocationErrorWidget(
+                      errorType: errorType,
+                      error: error,
+                      onRetry: _retryInitialization,
+                      config: widget.locationErrorConfiguration,
+                    ),
               );
             }
 

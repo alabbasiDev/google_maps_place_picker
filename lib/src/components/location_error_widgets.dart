@@ -186,6 +186,7 @@ class _LocationErrorBottomSheet extends StatelessWidget {
 /// Auto-detects locale if [config] is null.
 class DefaultLocationErrorWidget extends StatelessWidget {
   const DefaultLocationErrorWidget({
+    super.key,
     required this.errorType,
     required this.onRetry,
     this.config,
