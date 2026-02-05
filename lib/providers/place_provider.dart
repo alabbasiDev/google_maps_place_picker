@@ -97,10 +97,12 @@ class PlaceProvider extends ChangeNotifier {
     } on TimeoutException catch (e) {
       // Handle the timeout exception (e.g., inform the user, retry with different settings)
       print("PlacePicker-Location request timed out: $e");
-      isLoadingLocation = false;
+
     } catch (e) {
       // Handle other potential errors (e.g., permission denied)
       print("PlacePicker-An error occurred: $e");
+    }finally{
+      isLoadingLocation = false;
     }
   }
 
