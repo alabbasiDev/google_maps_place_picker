@@ -44,7 +44,7 @@ class PlacePicker extends StatefulWidget {
     required this.apiKey,
     this.onPlacePicked,
     required this.initialPosition,
-    this.useCurrentLocation = false,
+    this.useCurrentLocation = true,
     this.desiredLocationAccuracy = LocationAccuracy.high,
     this.onMapCreated,
     this.hintText,
@@ -368,7 +368,8 @@ class _PlacePickerState extends State<PlacePicker> {
           future: _futureProvider,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              logger.e(snapshot.error);
+              // logger.e(snapshot.error);
+              print('PlacePicker-snapshot.hasError=>${snapshot.error.toString()}');
               final error = snapshot.error;
               final errorType = _parseLocationError(error!);
 
@@ -512,13 +513,17 @@ class _PlacePickerState extends State<PlacePicker> {
   }
 
   Future<void> _moveTo(double latitude, double longitude) async {
-    if (provider?.mapController == null) return;
-    final GoogleMapController? controller = provider!.mapController;
-    await controller!.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(target: LatLng(latitude, longitude), zoom: 16),
-      ),
-    );
+    try {
+      if (provider?.mapController == null) return;
+      final GoogleMapController? controller = provider!.mapController;
+      await controller!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(target: LatLng(latitude, longitude), zoom: 16),
+        ),
+      );
+    } catch (e) {
+      print('PlacePicker-moveTo=>${e.toString()}');
+    }
   }
 
   Future<void> _moveToCurrentPosition() async {
@@ -534,20 +539,27 @@ class _PlacePickerState extends State<PlacePicker> {
   }
 
   Future<void> _handleMyLocation() async {
+    print('PlacePicker-handleMyLocation=>start handleMyLocation');
     if (provider == null || provider!.isLoadingLocation) return;
     // If already at current position, just animate to it without GPS request
     if (_isMapAtCurrentPosition()) {
+      print('PlacePicker-handleMyLocation=>already at current position');
       await _moveToCurrentPosition();
       return;
     }
+
     provider!.isLoadingLocation = true;
     try {
+      print('PlacePicker-handleMyLocation=>start updateCurrentLocation',);
       await provider!.updateCurrentLocation(
-          gracefully: widget.ignoreLocationPermissionErrors);
+        gracefully: widget.ignoreLocationPermissionErrors,
+      );
+      print('PlacePicker-handleMyLocation=>current-position-updated-start _moveToCurrentPosition');
       await _moveToCurrentPosition();
     } catch (error) {
       if (!mounted) return;
       final errorType = _parseLocationError(error);
+      print('PlacePicker-handleMyLocation-catch=>${errorType.toString()}');
       await showLocationErrorBottomSheet(
         context: context,
         errorType: errorType,
