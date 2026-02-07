@@ -44,7 +44,7 @@ class PlacePicker extends StatefulWidget {
     required this.apiKey,
     this.onPlacePicked,
     required this.initialPosition,
-    this.useCurrentLocation = true,
+    this.useCurrentLocation = false,
     this.desiredLocationAccuracy = LocationAccuracy.high,
     this.onMapCreated,
     this.hintText,
@@ -649,37 +649,40 @@ class _SearchBarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        const SizedBox(width: 15),
-        if (showBackButton)
-          _BackButton(onPressed: onBackPressed)
-        else
-          const SizedBox.shrink(),
-        Expanded(
-          child: AutoCompleteSearch(
-            appBarKey: appBarKey,
-            searchBarController: searchBarController,
-            sessionToken: provider.sessionToken,
-            hintText: hintText,
-            searchingText: searchingText,
-            debounceMilliseconds: debounceMilliseconds,
-            onPicked: onPicked,
-            onSearchFailed: onSearchFailed,
-            autocompleteOffset: autocompleteOffset,
-            autocompleteRadius: autocompleteRadius,
-            autocompleteLanguage: autocompleteLanguage,
-            autocompleteComponents: autocompleteComponents,
-            autocompleteTypes: autocompleteTypes,
-            strictbounds: strictbounds,
-            region: region,
-            initialSearchString: initialSearchString,
-            searchForInitialValue: searchForInitialValue,
-            autocompleteOnTrailingWhitespace: autocompleteOnTrailingWhitespace,
+    return SafeArea(
+      child: Row(
+        children: <Widget>[
+          const SizedBox(width: 15),
+          if (showBackButton)
+            _BackButton(onPressed: onBackPressed)
+          else
+            const SizedBox.shrink(),
+          Expanded(
+            child: AutoCompleteSearch(
+              appBarKey: appBarKey,
+              searchBarController: searchBarController,
+              sessionToken: provider.sessionToken,
+              hintText: hintText,
+              searchingText: searchingText,
+              debounceMilliseconds: debounceMilliseconds,
+              onPicked: onPicked,
+              onSearchFailed: onSearchFailed,
+              autocompleteOffset: autocompleteOffset,
+              autocompleteRadius: autocompleteRadius,
+              autocompleteLanguage: autocompleteLanguage,
+              autocompleteComponents: autocompleteComponents,
+              autocompleteTypes: autocompleteTypes,
+              strictbounds: strictbounds,
+              region: region,
+              initialSearchString: initialSearchString,
+              searchForInitialValue: searchForInitialValue,
+              autocompleteOnTrailingWhitespace:
+                  autocompleteOnTrailingWhitespace,
+            ),
           ),
-        ),
-        const SizedBox(width: 5),
-      ],
+          const SizedBox(width: 5),
+        ],
+      ),
     );
   }
 }
