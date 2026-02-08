@@ -38,6 +38,10 @@ typedef LocationErrorWidgetBuilder = Widget Function(
 
 final Logger logger = Logger();
 
+/// On web (e.g. InAppBrowser/InAppWebView), resizing when the keyboard opens
+/// often causes the search field to lose focus. Default is false on web.
+const bool _defaultResizeToAvoidBottomInset = kIsWeb ? false : true;
+
 class PlacePicker extends StatefulWidget {
   const PlacePicker({
     super.key,
@@ -75,7 +79,7 @@ class PlacePicker extends StatefulWidget {
     this.region,
     this.pickArea,
     this.selectInitialPosition = false,
-    this.resizeToAvoidBottomInset = true,
+    this.resizeToAvoidBottomInset = _defaultResizeToAvoidBottomInset,
     this.initialSearchString,
     this.searchForInitialValue = false,
     this.forceSearchOnZoomChanged = false,
@@ -411,34 +415,39 @@ class _PlacePickerState extends State<PlacePicker> {
                       elevation: 0,
                       backgroundColor: Colors.transparent,
                       titleSpacing: 0.0,
-                      title: _SearchBarWidget(
-                        provider: provider!,
-                        appBarKey: appBarKey,
-                        searchBarController: searchBarController,
-                        showBackButton: provider!.placeSearchingState ==
-                                SearchingState.Idle &&
-                            (widget.automaticallyImplyAppBarLeading ||
-                                widget.onTapBack != null),
-                        onBackPressed: _handleBackButton,
-                        onPicked: (prediction) {
-                          if (mounted) _pickPrediction(prediction);
-                        },
-                        onSearchFailed: widget.onAutoCompleteFailed,
-                        hintText: widget.hintText,
-                        searchingText: widget.searchingText,
-                        debounceMilliseconds:
-                            widget.autoCompleteDebounceInMilliseconds,
-                        autocompleteOffset: widget.autocompleteOffset,
-                        autocompleteRadius: widget.autocompleteRadius,
-                        autocompleteLanguage: widget.autocompleteLanguage,
-                        autocompleteComponents: widget.autocompleteComponents,
-                        autocompleteTypes: widget.autocompleteTypes,
-                        strictbounds: widget.strictbounds,
-                        region: widget.region,
-                        initialSearchString: widget.initialSearchString,
-                        searchForInitialValue: widget.searchForInitialValue,
-                        autocompleteOnTrailingWhitespace:
-                            widget.autocompleteOnTrailingWhitespace,
+                      title: Consumer<PlaceProvider>(
+                        builder: (context, placeProvider, _) =>
+                            _SearchBarWidget(
+                          provider: placeProvider,
+                          appBarKey: appBarKey,
+                          searchBarController: searchBarController,
+                          showBackButton:
+                              /* placeProvider.placeSearchingState ==
+                                  SearchingState.Idle && */
+                              (widget.automaticallyImplyAppBarLeading ||
+                                  widget.onTapBack != null),
+                          onBackPressed: _handleBackButton,
+                          onPicked: (prediction) {
+                            if (mounted) _pickPrediction(prediction);
+                          },
+                          onSearchFailed: widget.onAutoCompleteFailed,
+                          hintText: widget.hintText,
+                          searchingText: widget.searchingText,
+                          debounceMilliseconds:
+                              widget.autoCompleteDebounceInMilliseconds,
+                          autocompleteOffset: widget.autocompleteOffset,
+                          autocompleteRadius: widget.autocompleteRadius,
+                          autocompleteLanguage: widget.autocompleteLanguage,
+                          autocompleteComponents:
+                              widget.autocompleteComponents,
+                          autocompleteTypes: widget.autocompleteTypes,
+                          strictbounds: widget.strictbounds,
+                          region: widget.region,
+                          initialSearchString: widget.initialSearchString,
+                          searchForInitialValue: widget.searchForInitialValue,
+                          autocompleteOnTrailingWhitespace:
+                              widget.autocompleteOnTrailingWhitespace,
+                        ),
                       ),
                     ),
                     body: _MapWithLocation(
@@ -695,13 +704,17 @@ class _BackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      onPressed: onPressed,
-      icon: Icon(
-        !kIsWeb && Platform.isIOS ? Icons.arrow_back_ios : Icons.arrow_back,
+    return Card(
+      color: Theme.of(context).colorScheme.surface,
+      shape: const CircleBorder(),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(
+          !kIsWeb && Platform.isIOS ? Icons.arrow_back_ios : Icons.arrow_back,
+        ),
+        color: Colors.black.withAlpha(128),
+        padding: EdgeInsets.zero,
       ),
-      color: Colors.black.withAlpha(128),
-      padding: EdgeInsets.zero,
     );
   }
 }

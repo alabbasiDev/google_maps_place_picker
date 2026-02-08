@@ -86,12 +86,11 @@ class PlaceProvider extends ChangeNotifier {
       currentPosition = await Geolocator.getCurrentPosition(
         locationSettings: LocationSettings(
           accuracy: desiredAccuracy ?? LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 10),
+          timeLimit: const Duration(minutes: 3),
         ),
-      ).timeout(const Duration(seconds: 10), onTimeout: () {
+      ).timeout(const Duration(minutes: 3), onTimeout: () {
         throw TimeoutException("Location request timed out");
-      })
-          ;
+      });
       print('PlacePicker-PlaceProvider-updateCurrentLocation=>currentPosition=> ${_currentPosition?.latitude}');
       // currentPosition = _currentPosition;
     } on TimeoutException catch (e) {
