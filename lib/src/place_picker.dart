@@ -10,16 +10,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_place_picker_mb/google_maps_place_picker.dart';
 import 'package:google_maps_place_picker_mb/providers/place_provider.dart';
 import 'package:google_maps_place_picker_mb/src/components/autocomplete_search.dart';
-import 'package:google_maps_place_picker_mb/src/components/location_error_widgets.dart';
 import 'package:google_maps_place_picker_mb/src/controllers/autocomplete_search_controller.dart';
 import 'package:google_maps_place_picker_mb/src/google_map_place_picker.dart';
-import 'package:google_maps_place_picker_mb/src/models/enums.dart';
 import 'package:http/http.dart';
 import 'package:logger/logger.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
-import 'models/location_error_configuration.dart';
 
 typedef IntroModalWidgetBuilder = Widget Function(
   BuildContext context,
@@ -36,7 +33,7 @@ typedef LocationErrorWidgetBuilder = Widget Function(
   VoidCallback onRetry,
 );
 
-final Logger logger = Logger();
+final Logger _logger = Logger();
 
 /// On web (e.g. InAppBrowser/InAppWebView), resizing when the keyboard opens
 /// often causes the search field to lose focus. Default is false on web.
@@ -48,7 +45,7 @@ class PlacePicker extends StatefulWidget {
     required this.apiKey,
     this.onPlacePicked,
     required this.initialPosition,
-    this.useCurrentLocation = false,
+    this.useCurrentLocation = true,
     this.desiredLocationAccuracy = LocationAccuracy.high,
     this.onMapCreated,
     this.hintText,
